@@ -486,7 +486,7 @@ void Charger::SetNextKeyCheck(key_state* key, int64_t timeout) {
 void Charger::ProcessKey(int code, int64_t now) {
     key_state* key = &keys_[code];
 
-    if (code == KEY_POWER) {
+    if (code == KEY_POWER || code == 172 || code == KEY_VOLUMEDOWN || code == KEY_VOLUMEUP) {
         if (key->down) {
             int64_t reboot_timeout = key->timestamp + POWER_ON_KEY_TIME;
             if (now >= reboot_timeout) {
@@ -547,6 +547,9 @@ void Charger::ProcessHallSensor(int code) {
 
 void Charger::HandleInputState(int64_t now) {
     ProcessKey(KEY_POWER, now);
+    ProcessKey(172, now);
+    ProcessKey(KEY_VOLUMEDOWN, now);
+    ProcessKey(KEY_VOLUMEUP, now);
 
     if (next_key_check_ != -1 && now > next_key_check_) next_key_check_ = -1;
 
