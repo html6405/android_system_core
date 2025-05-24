@@ -96,23 +96,41 @@ UeventListener::UeventListener(size_t uevent_socket_rcvbuf_size) {
 }
 
 ReadUeventResult UeventListener::ReadUevent(Uevent* uevent) const {
-    char msg[UEVENT_MSG_LEN + 2];
+    char msg[UEVENT_MSG_LEN + 2] = {0};
     int n = uevent_kernel_multicast_recv(device_fd_.get(), msg, UEVENT_MSG_LEN);
+
     if (n <= 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            PLOG(ERROR) << "Error reading from Uevent Fd";
+            PLOG(ERROR) << "[UEVENTD] Error reading from uevent socket";
         }
         return ReadUeventResult::kFailed;
     }
+
     if (n >= UEVENT_MSG_LEN) {
-        LOG(ERROR) << "Uevent overflowed buffer, discarding";
+        LOG(ERROR) << "[UEVENTD] Uevent overflowed buffer, discarding (" << n << " bytes)";
         return ReadUeventResult::kInvalid;
     }
 
+    // Always null-terminate safely
     msg[n] = '\0';
     msg[n + 1] = '\0';
 
+    // Defensive logging of raw message
+    std::string safe_msg;
+    for (int i = 0; i < n; ++i) {
+        char c = msg[i];
+        safe_msg += (c == '\0') ? '|' : c;
+    }
+
+    LOG(ERROR) << "[UEVENTD] Raw uevent (" << n << " bytes): " << safe_msg;
+
+    if (uevent == nullptr) {
+        LOG(ERROR) << "[UEVENTD] uevent pointer is null!";
+        return ReadUeventResult::kFailed;
+    }
+
     ParseEvent(msg, uevent);
+    return ReadUeventResult::kSuccess;
 
     return ReadUeventResult::kSuccess;
 }
