@@ -96,6 +96,11 @@ UeventListener::UeventListener(size_t uevent_socket_rcvbuf_size) {
 }
 
 ReadUeventResult UeventListener::ReadUevent(Uevent* uevent) const {
+    if (uevent == nullptr) {
+        LOG(ERROR) << "[UEVENTD] uevent pointer is null (CRITICAL)";
+        return ReadUeventResult::kFailed;
+    }
+
     char msg[UEVENT_MSG_LEN + 2] = {0};
     int n = uevent_kernel_multicast_recv(device_fd_.get(), msg, UEVENT_MSG_LEN);
 
@@ -109,7 +114,6 @@ ReadUeventResult UeventListener::ReadUevent(Uevent* uevent) const {
         return ReadUeventResult::kInvalid;
     }
 
-    // Always null-terminate safely
     msg[n] = '\0';
     msg[n + 1] = '\0';
 
@@ -120,7 +124,7 @@ ReadUeventResult UeventListener::ReadUevent(Uevent* uevent) const {
     }
     LOG(ERROR) << "[UEVENTD] Raw uevent (" << n << " bytes): " << safe_msg;
 
-    // Hex dump of raw payload
+    // Hex dump of raw buffer
     std::string hex_dump;
     char ascii_buf[17] = {};
     int col = 0;
@@ -141,18 +145,12 @@ ReadUeventResult UeventListener::ReadUevent(Uevent* uevent) const {
     }
     LOG(ERROR) << "[UEVENTD] Hex dump of raw uevent (" << n << " bytes):\n" << hex_dump;
 
-    if (uevent == nullptr) {
-        LOG(ERROR) << "[UEVENTD] uevent pointer is null!";
-        return ReadUeventResult::kFailed;
-    }
-
     LOG(ERROR) << "[UEVENTD] Calling ParseEvent...";
     ParseEvent(msg, uevent);
     LOG(ERROR) << "[UEVENTD] ParseEvent completed";
 
     return ReadUeventResult::kSuccess;
 }
-
 
 // RegenerateUevents*() walks parts of the /sys tree and pokes the uevent files to cause the kernel
 // to regenerate device add uevents that have already happened.  This is particularly useful when
