@@ -65,13 +65,31 @@ static void ParseEvent(const char* msg, Uevent* uevent) {
             LOG(ERROR) << "[UEVENTD] FIRMWARE = " << uevent->firmware;
         } else if (!strncmp(msg, "MAJOR=", 6)) {
             msg += 6;
-            uevent->major = atoi(msg);
+            char* end;
+            long val = strtol(msg, &end, 10);
+            if (*end == '\0') {
+                uevent->major = static_cast<int>(val);
+            } else {
+                LOG(ERROR) << "[UEVENTD] Invalid MAJOR field: " << msg;
+            }
         } else if (!strncmp(msg, "MINOR=", 6)) {
             msg += 6;
-            uevent->minor = atoi(msg);
+            char* end;
+            long val = strtol(msg, &end, 10);
+            if (*end == '\0') {
+                uevent->minor = static_cast<int>(val);
+            } else {
+                LOG(ERROR) << "[UEVENTD] Invalid MINOR field: " << msg;
+            }
         } else if (!strncmp(msg, "PARTN=", 6)) {
             msg += 6;
-            uevent->partition_num = atoi(msg);
+            char* end;
+            long val = strtol(msg, &end, 10);
+            if (*end == '\0') {
+                uevent->partition_num = static_cast<int>(val);
+            } else {
+                LOG(ERROR) << "[UEVENTD] Invalid PARTN field: " << msg;
+            }
         } else if (!strncmp(msg, "PARTNAME=", 9)) {
             msg += 9;
             uevent->partition_name = msg;
@@ -86,7 +104,6 @@ static void ParseEvent(const char* msg, Uevent* uevent) {
             LOG(ERROR) << "[UEVENTD] Unknown field = " << msg;
         }
 
-        // Advance to next field (null-terminated token)
         while (*msg++)
             ;
     }
