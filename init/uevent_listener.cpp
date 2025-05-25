@@ -30,6 +30,9 @@ namespace android {
 namespace init {
 
 static void ParseEvent(const char* msg, Uevent* uevent) {
+    constexpr int kMaxTokens = 64;
+    int token_count = 0;
+
     uevent->partition_num = -1;
     uevent->major = -1;
     uevent->minor = -1;
@@ -41,7 +44,7 @@ static void ParseEvent(const char* msg, Uevent* uevent) {
     uevent->device_name.clear();
     uevent->modalias.clear();
 
-    while (*msg) {
+    while (*msg && token_count++ < kMaxTokens) {
         LOG(ERROR) << "[UEVENTD] token = " << msg;
 
         if (!strncmp(msg, "ACTION=", 7)) {
@@ -79,10 +82,17 @@ static void ParseEvent(const char* msg, Uevent* uevent) {
             msg += 9;
             uevent->modalias = msg;
             LOG(ERROR) << "[UEVENTD] MODALIAS = " << uevent->modalias;
+        } else {
+            LOG(ERROR) << "[UEVENTD] Unknown field = " << msg;
         }
 
+        // Advance to next field (null-terminated token)
         while (*msg++)
             ;
+    }
+
+    if (token_count >= kMaxTokens) {
+        LOG(ERROR) << "[UEVENTD] Exceeded token limit (" << kMaxTokens << "), aborting";
     }
 
     if (LOG_UEVENTS) {
