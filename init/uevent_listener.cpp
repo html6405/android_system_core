@@ -117,33 +117,16 @@ ReadUeventResult UeventListener::ReadUevent(Uevent* uevent) const {
     msg[n] = '\0';
     msg[n + 1] = '\0';
 
-    // Defensive ASCII log
-    std::string safe_msg;
-    for (int i = 0; i < n; ++i) {
-        safe_msg += (msg[i] == '\0') ? '|' : msg[i];
-    }
-    LOG(ERROR) << "[UEVENTD] Raw uevent (" << n << " bytes): " << safe_msg;
-
-    // Hex dump of raw buffer
-    std::string hex_dump;
-    char ascii_buf[17] = {};
-    int col = 0;
-    for (int i = 0; i < n; ++i) {
-        char byte = msg[i];
-        char hex[4];
-        snprintf(hex, sizeof(hex), "%02X ", static_cast<unsigned char>(byte));
-        hex_dump += hex;
-
-        ascii_buf[col++] = (byte >= 32 && byte <= 126) ? byte : '.';
-        if (col == 16 || i == n - 1) {
-            ascii_buf[col] = '\0';
-            hex_dump += " |";
-            hex_dump += ascii_buf;
-            hex_dump += "|\n";
-            col = 0;
+    // Dump raw message to file for binary analysis
+    if (n > 0 && n < UEVENT_MSG_LEN) {
+        int fd = open("/data/anr/uevent_raw.bin", O_CREAT | O_WRONLY | O_TRUNC, 0644);
+        if (fd >= 0) {
+            write(fd, msg, n);
+            close(fd);
+        } else {
+            PLOG(ERROR) << "[UEVENTD] Failed to write raw uevent to /data/anr/uevent_raw.bin";
         }
     }
-    LOG(ERROR) << "[UEVENTD] Hex dump of raw uevent (" << n << " bytes):\n" << hex_dump;
 
     LOG(ERROR) << "[UEVENTD] Calling ParseEvent...";
     ParseEvent(msg, uevent);
