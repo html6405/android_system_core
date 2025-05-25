@@ -100,9 +100,7 @@ ReadUeventResult UeventListener::ReadUevent(Uevent* uevent) const {
     int n = uevent_kernel_multicast_recv(device_fd_.get(), msg, UEVENT_MSG_LEN);
 
     if (n <= 0) {
-        if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            PLOG(ERROR) << "[UEVENTD] Error reading from uevent socket";
-        }
+        PLOG(ERROR) << "[UEVENTD] Invalid uevent length from kernel: " << n;
         return ReadUeventResult::kFailed;
     }
 
@@ -115,25 +113,46 @@ ReadUeventResult UeventListener::ReadUevent(Uevent* uevent) const {
     msg[n] = '\0';
     msg[n + 1] = '\0';
 
-    // Defensive logging of raw message
+    // Defensive ASCII log
     std::string safe_msg;
     for (int i = 0; i < n; ++i) {
-        char c = msg[i];
-        safe_msg += (c == '\0') ? '|' : c;
+        safe_msg += (msg[i] == '\0') ? '|' : msg[i];
     }
-
     LOG(ERROR) << "[UEVENTD] Raw uevent (" << n << " bytes): " << safe_msg;
+
+    // Hex dump of raw payload
+    std::string hex_dump;
+    char ascii_buf[17] = {};
+    int col = 0;
+    for (int i = 0; i < n; ++i) {
+        char byte = msg[i];
+        char hex[4];
+        snprintf(hex, sizeof(hex), "%02X ", static_cast<unsigned char>(byte));
+        hex_dump += hex;
+
+        ascii_buf[col++] = (byte >= 32 && byte <= 126) ? byte : '.';
+        if (col == 16 || i == n - 1) {
+            ascii_buf[col] = '\0';
+            hex_dump += " |";
+            hex_dump += ascii_buf;
+            hex_dump += "|\n";
+            col = 0;
+        }
+    }
+    LOG(ERROR) << "[UEVENTD] Hex dump of raw uevent (" << n << " bytes):\n" << hex_dump;
 
     if (uevent == nullptr) {
         LOG(ERROR) << "[UEVENTD] uevent pointer is null!";
         return ReadUeventResult::kFailed;
     }
 
+    LOG(ERROR) << "[UEVENTD] Calling ParseEvent...";
     ParseEvent(msg, uevent);
-    return ReadUeventResult::kSuccess;
+    LOG(ERROR) << "[UEVENTD] ParseEvent completed";
 
     return ReadUeventResult::kSuccess;
 }
+
 
 // RegenerateUevents*() walks parts of the /sys tree and pokes the uevent files to cause the kernel
 // to regenerate device add uevents that have already happened.  This is particularly useful when
