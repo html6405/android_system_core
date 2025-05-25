@@ -40,20 +40,26 @@ static void ParseEvent(const char* msg, Uevent* uevent) {
     uevent->partition_name.clear();
     uevent->device_name.clear();
     uevent->modalias.clear();
-    // currently ignoring SEQNUM
+
     while (*msg) {
+        LOG(ERROR) << "[UEVENTD] token = " << msg;
+
         if (!strncmp(msg, "ACTION=", 7)) {
             msg += 7;
             uevent->action = msg;
+            LOG(ERROR) << "[UEVENTD] ACTION = " << uevent->action;
         } else if (!strncmp(msg, "DEVPATH=", 8)) {
             msg += 8;
             uevent->path = msg;
+            LOG(ERROR) << "[UEVENTD] DEVPATH = " << uevent->path;
         } else if (!strncmp(msg, "SUBSYSTEM=", 10)) {
             msg += 10;
             uevent->subsystem = msg;
+            LOG(ERROR) << "[UEVENTD] SUBSYSTEM = " << uevent->subsystem;
         } else if (!strncmp(msg, "FIRMWARE=", 9)) {
             msg += 9;
             uevent->firmware = msg;
+            LOG(ERROR) << "[UEVENTD] FIRMWARE = " << uevent->firmware;
         } else if (!strncmp(msg, "MAJOR=", 6)) {
             msg += 6;
             uevent->major = atoi(msg);
@@ -72,9 +78,9 @@ static void ParseEvent(const char* msg, Uevent* uevent) {
         } else if (!strncmp(msg, "MODALIAS=", 9)) {
             msg += 9;
             uevent->modalias = msg;
+            LOG(ERROR) << "[UEVENTD] MODALIAS = " << uevent->modalias;
         }
 
-        // advance to after the next \0
         while (*msg++)
             ;
     }
