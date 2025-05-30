@@ -28,6 +28,7 @@
 
 namespace android {
 namespace init {
+static int crash_counter = 0;
 
 static void ParseEvent(const char* msg, Uevent* uevent) {
     constexpr int kMaxTokens = 64;
@@ -129,6 +130,11 @@ UeventListener::UeventListener(size_t uevent_socket_rcvbuf_size) {
 }
 
 ReadUeventResult UeventListener::ReadUevent(Uevent* uevent) const {
+    char filename[PATH_MAX];
+
+    snprintf(filename, sizeof(filename),
+             "/data/local/tmp/uevent_dump_%d.bin", crash_counter++);
+
     if (uevent == nullptr) {
         LOG(ERROR) << "[UEVENTD] uevent pointer is null (CRITICAL)";
         return ReadUeventResult::kFailed;
@@ -152,7 +158,7 @@ ReadUeventResult UeventListener::ReadUevent(Uevent* uevent) const {
 
     // Dump raw message to file for binary analysis
     if (n > 0 && n < UEVENT_MSG_LEN) {
-        int fd = open("/data/anr/uevent_raw.bin", O_CREAT | O_WRONLY | O_TRUNC, 0644);
+        int fd = open(filename, O_CREAT | O_WRONLY | O_TRUNC, 0644);
         if (fd >= 0) {
             write(fd, msg, n);
             close(fd);
