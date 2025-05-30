@@ -30,7 +30,7 @@ namespace android {
 namespace init {
 static int crash_counter = 0;
 
-static void ParseEvent(const char* msg, Uevent* uevent) {
+static bool ParseEvent(const char* msg, Uevent* uevent) {
     constexpr int kMaxTokens = 64;
     int token_count = 0;
 
@@ -46,51 +46,33 @@ static void ParseEvent(const char* msg, Uevent* uevent) {
     uevent->modalias.clear();
 
     while (*msg && token_count++ < kMaxTokens) {
-        LOG(ERROR) << "[UEVENTD] token = " << msg;
-
         if (!strncmp(msg, "ACTION=", 7)) {
             msg += 7;
             uevent->action = msg;
-            LOG(ERROR) << "[UEVENTD] ACTION = " << uevent->action;
         } else if (!strncmp(msg, "DEVPATH=", 8)) {
             msg += 8;
             uevent->path = msg;
-            LOG(ERROR) << "[UEVENTD] DEVPATH = " << uevent->path;
         } else if (!strncmp(msg, "SUBSYSTEM=", 10)) {
             msg += 10;
             uevent->subsystem = msg;
-            LOG(ERROR) << "[UEVENTD] SUBSYSTEM = " << uevent->subsystem;
         } else if (!strncmp(msg, "FIRMWARE=", 9)) {
             msg += 9;
             uevent->firmware = msg;
-            LOG(ERROR) << "[UEVENTD] FIRMWARE = " << uevent->firmware;
         } else if (!strncmp(msg, "MAJOR=", 6)) {
             msg += 6;
             char* end;
             long val = strtol(msg, &end, 10);
-            if (*end == '\0') {
-                uevent->major = static_cast<int>(val);
-            } else {
-                LOG(ERROR) << "[UEVENTD] Invalid MAJOR field: " << msg;
-            }
+            if (*end == '\0') uevent->major = static_cast<int>(val);
         } else if (!strncmp(msg, "MINOR=", 6)) {
             msg += 6;
             char* end;
             long val = strtol(msg, &end, 10);
-            if (*end == '\0') {
-                uevent->minor = static_cast<int>(val);
-            } else {
-                LOG(ERROR) << "[UEVENTD] Invalid MINOR field: " << msg;
-            }
+            if (*end == '\0') uevent->minor = static_cast<int>(val);
         } else if (!strncmp(msg, "PARTN=", 6)) {
             msg += 6;
             char* end;
             long val = strtol(msg, &end, 10);
-            if (*end == '\0') {
-                uevent->partition_num = static_cast<int>(val);
-            } else {
-                LOG(ERROR) << "[UEVENTD] Invalid PARTN field: " << msg;
-            }
+            if (*end == '\0') uevent->partition_num = static_cast<int>(val);
         } else if (!strncmp(msg, "PARTNAME=", 9)) {
             msg += 9;
             uevent->partition_name = msg;
@@ -100,24 +82,23 @@ static void ParseEvent(const char* msg, Uevent* uevent) {
         } else if (!strncmp(msg, "MODALIAS=", 9)) {
             msg += 9;
             uevent->modalias = msg;
-            LOG(ERROR) << "[UEVENTD] MODALIAS = " << uevent->modalias;
-        } else {
-            LOG(ERROR) << "[UEVENTD] Unknown field = " << msg;
         }
 
-        while (*msg++)
-            ;
+        while (*msg++) ;
     }
 
     if (token_count >= kMaxTokens) {
-        LOG(ERROR) << "[UEVENTD] Exceeded token limit (" << kMaxTokens << "), aborting";
+        LOG(ERROR) << "[UEVENTD] Exceeded token limit, parsing aborted";
+        return false;
     }
 
-    if (LOG_UEVENTS) {
-        LOG(INFO) << "event { '" << uevent->action << "', '" << uevent->path << "', '"
-                  << uevent->subsystem << "', '" << uevent->firmware << "', " << uevent->major
-                  << ", " << uevent->minor << " }";
+    // Basic validity checks
+    if (uevent->subsystem.empty() || uevent->path.empty()) {
+        LOG(ERROR) << "[UEVENTD] Missing mandatory fields: subsystem or path";
+        return false;
     }
+
+    return true;
 }
 
 UeventListener::UeventListener(size_t uevent_socket_rcvbuf_size) {
