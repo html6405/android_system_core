@@ -130,11 +130,6 @@ UeventListener::UeventListener(size_t uevent_socket_rcvbuf_size) {
 }
 
 ReadUeventResult UeventListener::ReadUevent(Uevent* uevent) const {
-    char filename[PATH_MAX];
-
-    snprintf(filename, sizeof(filename),
-             "/data/local/tmp/uevent_dump_%d.bin", crash_counter++);
-
     if (uevent == nullptr) {
         LOG(ERROR) << "[UEVENTD] uevent pointer is null (CRITICAL)";
         return ReadUeventResult::kFailed;
@@ -156,20 +151,28 @@ ReadUeventResult UeventListener::ReadUevent(Uevent* uevent) const {
     msg[n] = '\0';
     msg[n + 1] = '\0';
 
-    // Dump raw message to file for binary analysis
-    if (n > 0 && n < UEVENT_MSG_LEN) {
-        int fd = open(filename, O_CREAT | O_WRONLY | O_TRUNC, 0644);
-        if (fd >= 0) {
-            write(fd, msg, n);
-            close(fd);
-        } else {
-            PLOG(ERROR) << "[UEVENTD] Failed to write raw uevent to /data/anr/uevent_raw.bin";
-        }
+    // Dump raw message to /data/local/tmp with rotating index
+    char filename[PATH_MAX];
+    snprintf(filename, sizeof(filename),
+             "/data/local/tmp/uevent_dump_%d.bin", crash_counter++ % 100);
+    int fd = open(filename, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+    if (fd >= 0) {
+        write(fd, msg, n);
+        close(fd);
+    } else {
+        PLOG(ERROR) << "[UEVENTD] Failed to write uevent dump to: " << filename;
     }
 
-    LOG(ERROR) << "[UEVENTD] Calling ParseEvent...";
-    ParseEvent(msg, uevent);
-    LOG(ERROR) << "[UEVENTD] ParseEvent completed";
+    LOG(DEBUG) << "[UEVENTD] Calling ParseEvent";
+    if (!ParseEvent(msg, uevent)) {
+        LOG(ERROR) << "[UEVENTD] Failed to parse uevent";
+        return ReadUeventResult::kInvalid;
+    }
+
+    if (uevent->subsystem.empty() || uevent->path.empty()) {
+        LOG(ERROR) << "[UEVENTD] Malformed uevent: missing SUBSYSTEM or DEVPATH";
+        return ReadUeventResult::kInvalid;
+    }
 
     return ReadUeventResult::kSuccess;
 }
