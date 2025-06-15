@@ -132,6 +132,34 @@ ReadUeventResult UeventListener::ReadUevent(Uevent* uevent) const {
     msg[n] = '\0';
     msg[n + 1] = '\0';
 
+    if (memmem(msg, n, "DEVPATH=/devices/platform/samsung-battery/", strlen("DEVPATH=/devices/platform/samsung-battery/"))) {
+        LOG(WARNING) << "[UEVENTD] Skipping samsung-battery uevent (filtered by memmem, size=" << n << " bytes)";
+        return ReadUeventResult::kInvalid;
+    }
+    if (memmem(msg, n, "DEVPATH=/devices/platform/s3c-sdhci.3/mmc_host/mmc2", strlen("DEVPATH=/devices/platform/s3c-sdhci.3/mmc_host/mmc2"))) {
+        LOG(WARNING) << "[UEVENTD] Skipping mmc2 uevent (filtered by memmem, size=" << n << " bytes)";
+        return ReadUeventResult::kInvalid;
+    }
+    if (memmem(msg, n, "/ieee80211/phy0/rfkill1", strlen("/ieee80211/phy0/rfkill1"))) {
+        LOG(WARNING) << "[UEVENTD] Skipping rfkill1 uevent (filtered by memmem, size=" << n << " bytes)";
+        return ReadUeventResult::kInvalid;
+    }
+
+    if (memmem(msg, n, "DEVPATH=/devices/platform/s5p-tmu", strlen("DEVPATH=/devices/platform/s5p-tmu"))) {
+        LOG(WARNING) << "[UEVENTD] Skipping s5p-tmu uevent (filtered by memmem, size=" << n << " bytes)";
+        return ReadUeventResult::kInvalid;
+    }
+
+    if (memmem(msg, n, "/rfkill1", 8) || memmem(msg, n, "/rfkill2", 8) ||
+        memmem(msg, n, "/s5p-tmu", 8)) {
+        LOG(WARNING) << "[UEVENTD] Skipping risky uevent (filtered)";
+        return ReadUeventResult::kInvalid;
+    }
+
+    // Log raw uevent buffer for debugging
+    LOG(INFO) << "[UEVENTD] Raw buffer (" << n << " bytes): "
+              << std::string(msg, n);
+
     // Dump raw message to /data/local/tmp with rotating index
     char filename[PATH_MAX];
     snprintf(filename, sizeof(filename),
