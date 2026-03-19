@@ -878,8 +878,25 @@ int SetupSelinux(char** argv) {
     // store SELabels in their xattrs, such as ext4 do not need an explicit restorecon here,
     // but other file systems do.  In particular, this is needed for ramdisks such as the
     // recovery image for A/B devices.
+    //
+    // On legacy devices (kernel <= 4.14) the system partition is ext4 but the kernel implicitly
+    // advertises seclabel support, so libselinux does not exclude /system from relabelling.
+    // However /system is mounted read-only, causing lsetfilecon to fail with EROFS even when the
+    // existing label is already correct.  Treat EROFS as non-fatal when the label already matches
+    // the expected value -- the file is correctly labelled and no write is needed.
     if (selinux_android_restorecon("/system/bin/init", 0) == -1) {
-        PLOG(FATAL) << "restorecon failed of /system/bin/init failed";
+        if (errno == EROFS) {
+            char* ctx = nullptr;
+            if (lgetfilecon("/system/bin/init", &ctx) >= 0) {
+                LOG(WARNING) << "restorecon of /system/bin/init failed with EROFS but label is '"
+                             << ctx << "' -- continuing on read-only fs";
+                freecon(ctx);
+            } else {
+                PLOG(FATAL) << "restorecon failed of /system/bin/init failed";
+            }
+        } else {
+            PLOG(FATAL) << "restorecon failed of /system/bin/init failed";
+        }
     }
 
     setenv(kEnvSelinuxStartedAt, std::to_string(start_time.time_since_epoch().count()).c_str(), 1);
