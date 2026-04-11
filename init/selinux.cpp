@@ -58,6 +58,7 @@
 #include <stdlib.h>
 #include <sys/mount.h>
 #include <sys/wait.h>
+#include <sys/utsname.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <strings.h>
@@ -233,6 +234,19 @@ struct PolicyFile {
     std::string path;
 };
 
+// Detect kernel major.minor.  Returns true if strictly below the requested
+// version.  Used to cap the policydb version passed to secilc on legacy
+// kernels that lack the ioctl extended-permission (xperms) backport.
+bool KernelOlderThan(unsigned want_major, unsigned want_minor) {
+    struct utsname u;
+    if (uname(&u) != 0) return false;
+    unsigned major = 0, minor = 0;
+    if (sscanf(u.release, "%u.%u", &major, &minor) != 2) return false;
+    if (major < want_major) return true;
+    if (major == want_major && minor < want_minor) return true;
+    return false;
+}
+
 bool OpenSplitPolicy(PolicyFile* policy_file) {
     // IMPLEMENTATION NOTE: Split policy consists of three or more CIL files:
     // * platform -- policy needed due to logic contained in the system image,
@@ -335,7 +349,18 @@ bool OpenSplitPolicy(PolicyFile* policy_file) {
     if (access(odm_policy_cil_file.c_str(), F_OK) == -1) {
         odm_policy_cil_file.clear();
     }
-    const std::string version_as_string = std::to_string(SEPOLICY_VERSION);
+    // Kernels older than 4.9 may lack the ioctl extended-permission (xperms)
+    // backport.  Policies compiled at policydb version >= 30 contain
+    // AVTAB_XPERMS_ALLOWED entries that such kernels cannot parse, causing
+    // security_load_policy() to fail with EINVAL.  Cap the version to 29 so
+    // secilc omits xperms rules.
+    unsigned int effective_version = SEPOLICY_VERSION;
+    if (KernelOlderThan(4, 9) && effective_version > 29) {
+        LOG(WARNING) << "SELinux: capping policy version from " << effective_version
+                     << " to 29 for legacy kernel (no xperms support)";
+        effective_version = 29;
+    }
+    const std::string version_as_string = std::to_string(effective_version);
 
     std::vector<std::string> genfs_cil_files;
 
