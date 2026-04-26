@@ -322,6 +322,14 @@ bool SetCgroupAction::AddTidToCgroup(pid_t tid, int fd, ResourceCacheType cache_
         return true;
     }
 
+    // ENOENT is returned when the cgroup path does not exist on vendor
+    // kernels that lack the full hierarchy expected by APEX services.
+    // Treat it as non-fatal so boot can continue with degraded cgroup
+    // support (matching the init-level fallback in service.cpp).
+    if (errno == ENOENT) {
+        return true;
+    }
+
     const char* controller_name = controller()->name();
     // ENOSPC is returned when cpuset cgroup that we are joining has no online cpus
     if (errno == ENOSPC && !strcmp(controller_name, "cpuset")) {
