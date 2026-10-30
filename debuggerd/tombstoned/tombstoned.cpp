@@ -56,6 +56,7 @@ static InterceptManager* intercept_manager;
 
 struct CrashArtifact {
   unique_fd fd;
+  std::optional<std::string> temporary_path;
 
   static CrashArtifact devnull() {
     CrashArtifact result;
@@ -141,7 +142,15 @@ class CrashQueue {
 
     result.fd.reset(openat(dir_fd_, ".", O_WRONLY | O_APPEND | O_TMPFILE | O_CLOEXEC, 0660));
     if (result.fd == -1) {
-      PLOG(FATAL) << "failed to create temporary tombstone in " << dir_path_;
+      // We might not have O_TMPFILE. Try creating with an arbitrary filename instead.
+      static size_t counter = 0;
+      std::string tmp_filename = StringPrintf(".temporary%zu", counter++);
+      result.fd.reset(openat(dir_fd_, tmp_filename.c_str(),
+                             O_WRONLY | O_APPEND | O_CREAT | O_TRUNC | O_CLOEXEC, 0660));
+      if (result.fd == -1) {
+        PLOG(FATAL) << "failed to create temporary tombstone in " << dir_path_;
+      }
+      result.temporary_path = std::move(tmp_filename);
     }
 
     if (world_readable_) {
@@ -463,6 +472,20 @@ static void crash_completed(borrowed_fd sockfd, std::unique_ptr<Crash> crash) {
       // tombstone associated with a given native crash was written. Any changes
       // to this message must be carefully considered.
       LOG(ERROR) << "Tombstone written to: " << paths.text;
+    }
+  }
+
+  // If we don't have O_TMPFILE, we need to clean up after ourselves.
+  if (crash->output.text.temporary_path) {
+    rc = unlinkat(queue->dir_fd().get(), crash->output.text.temporary_path->c_str(), 0);
+    if (rc != 0) {
+      PLOG(ERROR) << "failed to unlink temporary tombstone at " << paths.text;
+    }
+  }
+  if (crash->output.proto && crash->output.proto->temporary_path) {
+    rc = unlinkat(queue->dir_fd().get(), crash->output.proto->temporary_path->c_str(), 0);
+    if (rc != 0) {
+      PLOG(ERROR) << "failed to unlink temporary proto tombstone";
     }
   }
 }
