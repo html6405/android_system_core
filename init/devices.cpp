@@ -306,9 +306,6 @@ void DeviceHandler::MakeDevice(const std::string& path, bool block, int major, i
         PLOG(ERROR) << "setegid(" << gid << ") for " << path << " device failed";
         goto out;
     }
-    if (path == "/dev/binder") {
-        LOG(ERROR) << "[UEVENTD] Created or attempted to create /dev/binder";
-    }
     /* If the node already exists update its SELinux label and the file mode to handle cases when
      * it was created with the wrong context and file mode during coldboot procedure. */
     if (mknod(path.c_str(), mode, dev) && (errno == EEXIST) && !secontext.empty()) {

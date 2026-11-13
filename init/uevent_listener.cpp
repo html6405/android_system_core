@@ -28,12 +28,8 @@
 
 namespace android {
 namespace init {
-static int crash_counter = 0;
 
-static bool ParseEvent(const char* msg, Uevent* uevent) {
-    constexpr int kMaxTokens = 64;
-    int token_count = 0;
-
+static void ParseEvent(const char* msg, Uevent* uevent) {
     uevent->partition_num = -1;
     uevent->major = -1;
     uevent->minor = -1;
@@ -44,8 +40,8 @@ static bool ParseEvent(const char* msg, Uevent* uevent) {
     uevent->partition_name.clear();
     uevent->device_name.clear();
     uevent->modalias.clear();
-
-    while (*msg && token_count++ < kMaxTokens) {
+    // currently ignoring SEQNUM
+    while (*msg) {
         if (!strncmp(msg, "ACTION=", 7)) {
             msg += 7;
             uevent->action = msg;
@@ -60,19 +56,13 @@ static bool ParseEvent(const char* msg, Uevent* uevent) {
             uevent->firmware = msg;
         } else if (!strncmp(msg, "MAJOR=", 6)) {
             msg += 6;
-            char* end;
-            long val = strtol(msg, &end, 10);
-            if (*end == '\0') uevent->major = static_cast<int>(val);
+            uevent->major = atoi(msg);
         } else if (!strncmp(msg, "MINOR=", 6)) {
             msg += 6;
-            char* end;
-            long val = strtol(msg, &end, 10);
-            if (*end == '\0') uevent->minor = static_cast<int>(val);
+            uevent->minor = atoi(msg);
         } else if (!strncmp(msg, "PARTN=", 6)) {
             msg += 6;
-            char* end;
-            long val = strtol(msg, &end, 10);
-            if (*end == '\0') uevent->partition_num = static_cast<int>(val);
+            uevent->partition_num = atoi(msg);
         } else if (!strncmp(msg, "PARTNAME=", 9)) {
             msg += 9;
             uevent->partition_name = msg;
@@ -84,21 +74,16 @@ static bool ParseEvent(const char* msg, Uevent* uevent) {
             uevent->modalias = msg;
         }
 
-        while (*msg++) ;
+        // advance to after the next \0
+        while (*msg++)
+            ;
     }
 
-    if (token_count >= kMaxTokens) {
-        LOG(ERROR) << "[UEVENTD] Exceeded token limit, parsing aborted";
-        return false;
+    if (LOG_UEVENTS) {
+        LOG(INFO) << "event { '" << uevent->action << "', '" << uevent->path << "', '"
+                  << uevent->subsystem << "', '" << uevent->firmware << "', " << uevent->major
+                  << ", " << uevent->minor << " }";
     }
-
-    // Basic validity checks
-    if (uevent->subsystem.empty() || uevent->path.empty()) {
-        LOG(ERROR) << "[UEVENTD] Missing mandatory fields: subsystem or path";
-        return false;
-    }
-
-    return true;
 }
 
 UeventListener::UeventListener(size_t uevent_socket_rcvbuf_size) {
@@ -111,77 +96,23 @@ UeventListener::UeventListener(size_t uevent_socket_rcvbuf_size) {
 }
 
 ReadUeventResult UeventListener::ReadUevent(Uevent* uevent) const {
-    if (uevent == nullptr) {
-        LOG(ERROR) << "[UEVENTD] uevent pointer is null (CRITICAL)";
-        return ReadUeventResult::kFailed;
-    }
-
-    char msg[UEVENT_MSG_LEN + 2] = {0};
+    char msg[UEVENT_MSG_LEN + 2];
     int n = uevent_kernel_multicast_recv(device_fd_.get(), msg, UEVENT_MSG_LEN);
-
     if (n <= 0) {
-        PLOG(ERROR) << "[UEVENTD] Invalid uevent length from kernel: " << n;
+        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            PLOG(ERROR) << "Error reading from Uevent Fd";
+        }
         return ReadUeventResult::kFailed;
     }
-
     if (n >= UEVENT_MSG_LEN) {
-        LOG(ERROR) << "[UEVENTD] Uevent overflowed buffer, discarding (" << n << " bytes)";
+        LOG(ERROR) << "Uevent overflowed buffer, discarding";
         return ReadUeventResult::kInvalid;
     }
 
     msg[n] = '\0';
     msg[n + 1] = '\0';
 
-    if (memmem(msg, n, "DEVPATH=/devices/platform/samsung-battery/", strlen("DEVPATH=/devices/platform/samsung-battery/"))) {
-        LOG(WARNING) << "[UEVENTD] Skipping samsung-battery uevent (filtered by memmem, size=" << n << " bytes)";
-        return ReadUeventResult::kInvalid;
-    }
-    if (memmem(msg, n, "DEVPATH=/devices/platform/s3c-sdhci.3/mmc_host/mmc2", strlen("DEVPATH=/devices/platform/s3c-sdhci.3/mmc_host/mmc2"))) {
-        LOG(WARNING) << "[UEVENTD] Skipping mmc2 uevent (filtered by memmem, size=" << n << " bytes)";
-        return ReadUeventResult::kInvalid;
-    }
-    if (memmem(msg, n, "/ieee80211/phy0/rfkill1", strlen("/ieee80211/phy0/rfkill1"))) {
-        LOG(WARNING) << "[UEVENTD] Skipping rfkill1 uevent (filtered by memmem, size=" << n << " bytes)";
-        return ReadUeventResult::kInvalid;
-    }
-
-    if (memmem(msg, n, "DEVPATH=/devices/platform/s5p-tmu", strlen("DEVPATH=/devices/platform/s5p-tmu"))) {
-        LOG(WARNING) << "[UEVENTD] Skipping s5p-tmu uevent (filtered by memmem, size=" << n << " bytes)";
-        return ReadUeventResult::kInvalid;
-    }
-
-    if (memmem(msg, n, "/rfkill1", 8) || memmem(msg, n, "/rfkill2", 8) ||
-        memmem(msg, n, "/s5p-tmu", 8)) {
-        LOG(WARNING) << "[UEVENTD] Skipping risky uevent (filtered)";
-        return ReadUeventResult::kInvalid;
-    }
-
-    // Log raw uevent buffer for debugging
-    LOG(INFO) << "[UEVENTD] Raw buffer (" << n << " bytes): "
-              << std::string(msg, n);
-
-    // Dump raw message to /data/local/tmp with rotating index
-    char filename[PATH_MAX];
-    snprintf(filename, sizeof(filename),
-             "/data/local/tmp/uevent_dump_%d.bin", crash_counter++ % 100);
-    int fd = open(filename, O_CREAT | O_WRONLY | O_TRUNC, 0644);
-    if (fd >= 0) {
-        write(fd, msg, n);
-        close(fd);
-    } else {
-        PLOG(ERROR) << "[UEVENTD] Failed to write uevent dump to: " << filename;
-    }
-
-    LOG(DEBUG) << "[UEVENTD] Calling ParseEvent";
-    if (!ParseEvent(msg, uevent)) {
-        LOG(ERROR) << "[UEVENTD] Failed to parse uevent";
-        return ReadUeventResult::kInvalid;
-    }
-
-    if (uevent->subsystem.empty() || uevent->path.empty()) {
-        LOG(ERROR) << "[UEVENTD] Malformed uevent: missing SUBSYSTEM or DEVPATH";
-        return ReadUeventResult::kInvalid;
-    }
+    ParseEvent(msg, uevent);
 
     return ReadUeventResult::kSuccess;
 }
