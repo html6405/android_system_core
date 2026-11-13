@@ -59,8 +59,18 @@ enum CrashStatus {
   kCrashStatusQueued,
 };
 
+struct TemporaryTombstoneDeleter {
+  void operator()(std::string* path) const {
+    if (path != nullptr) {
+      if (unlink(path->c_str()) != 0) PLOG(ERROR) << "failed to unlink " << *path;
+      delete path;
+    }
+  }
+};
+
 struct CrashArtifact {
   unique_fd fd;
+  std::unique_ptr<std::string, TemporaryTombstoneDeleter> temporary_path;
 
   static CrashArtifact devnull() {
     CrashArtifact result;
@@ -141,10 +151,16 @@ class CrashQueue {
   CrashArtifact create_temporary_file() const {
     CrashArtifact result;
 
-    std::optional<std::string> path;
     result.fd.reset(openat(dir_fd_, ".", O_WRONLY | O_APPEND | O_TMPFILE | O_CLOEXEC, 0660));
     if (result.fd == -1) {
-      PLOG(FATAL) << "failed to create temporary tombstone in " << dir_path_;
+      // Older kernels cannot create O_TMPFILE files. Keep a unique named
+      // file until publication through /proc/self/fd, then clean it on scope exit.
+      std::string path = dir_path_ + "/.temporaryXXXXXX";
+      result.fd.reset(mkostemp(path.data(), O_APPEND | O_CLOEXEC));
+      if (result.fd == -1) {
+        PLOG(FATAL) << "failed to create temporary tombstone in " << dir_path_;
+      }
+      result.temporary_path.reset(new std::string(std::move(path)));
     }
 
     // We need to fchmodat after creating to avoid getting the umask applied.
