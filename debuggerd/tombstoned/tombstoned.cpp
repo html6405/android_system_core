@@ -161,6 +161,15 @@ class CrashQueue {
         PLOG(FATAL) << "failed to create temporary tombstone in " << dir_path_;
       }
       result.temporary_path.reset(new std::string(std::move(path)));
+      // mkostemp creates an O_RDWR descriptor. crash_dump is intentionally
+      // allowed only append access, including when receiving this fd. Reopen
+      // the same inode through procfs with the normal O_TMPFILE access mode.
+      std::string temporary_fd_path = StringPrintf("/proc/self/fd/%d", result.fd.get());
+      int write_fd = open(temporary_fd_path.c_str(), O_WRONLY | O_APPEND | O_CLOEXEC);
+      if (write_fd == -1) {
+        PLOG(FATAL) << "failed to reopen temporary tombstone for writing";
+      }
+      result.fd.reset(write_fd);
     }
 
     // We need to fchmodat after creating to avoid getting the umask applied.
